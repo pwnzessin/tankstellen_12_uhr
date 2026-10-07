@@ -1,0 +1,10 @@
+{
+  "_comment": "Copy to config.json. API key from https://creativecommons.tankerkoenig.de (never publish it). The demo key 00000000-0000-0000-0000-000000000002 only returns fake prices.",
+  "api_key": "00000000-0000-0000-0000-000000000002",
+  "db_path": "tankstellen.db",
+  "lat": 52.521,
+  "lng": 13.438,
+  "radius_km": 5.0,
+  "poll_interval_seconds": 300,
+  "poll_jitter_seconds": 45
+}
