@@ -4,7 +4,7 @@
   "db_path": "tankstellen.db",
   "lat": 52.521,
   "lng": 13.438,
-  "radius_km": 5.0,
+  "radius_km": 25.0,
   "poll_interval_seconds": 300,
   "poll_jitter_seconds": 45
 }

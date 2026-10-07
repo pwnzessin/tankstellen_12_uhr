@@ -49,6 +49,41 @@ CREATE TABLE IF NOT EXISTS price_increases (
 );
 CREATE INDEX IF NOT EXISTS idx_inc_verdict ON price_increases(verdict, berlin_day);
 
+-- Exact price changes from the Tankerkoenig historical CSV files.
+-- One row per real price change (change flag 1 = changed) with the real timestamp.
+-- prev_price is the last known price of that station+fuel (may be from an earlier day).
+CREATE TABLE IF NOT EXISTS exact_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    station_id  TEXT NOT NULL,
+    fuel        TEXT NOT NULL CHECK (fuel IN ('diesel','e5','e10')),
+    ts_utc      TEXT NOT NULL,
+    berlin_day  TEXT NOT NULL,
+    prev_price  REAL,
+    price       REAL NOT NULL,
+    is_increase INTEGER NOT NULL,
+    -- seconds after 12:00:00 Berlin time on that day (negative = before noon)
+    secs_from_noon INTEGER NOT NULL,
+    UNIQUE (station_id, fuel, ts_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_exact_inc ON exact_changes(is_increase, berlin_day);
+
+-- Last known price per station+fuel from the import, so imports can be resumed
+-- file by file in date order.
+CREATE TABLE IF NOT EXISTS import_state (
+    station_id TEXT NOT NULL,
+    fuel       TEXT NOT NULL,
+    price      REAL,
+    ts_utc     TEXT NOT NULL,
+    PRIMARY KEY (station_id, fuel)
+);
+
+CREATE TABLE IF NOT EXISTS imported_files (
+    name        TEXT PRIMARY KEY,
+    imported_at TEXT NOT NULL,
+    rows_total  INTEGER NOT NULL,
+    rows_in_area INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS polls (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ts_utc     TEXT NOT NULL,

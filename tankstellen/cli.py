@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import api, collector, db, report
+from . import api, collector, db, history, report
 
 DEFAULTS = {
     "api_key": None,
@@ -49,9 +49,24 @@ def build_parser() -> argparse.ArgumentParser:
     area(sp)
     sp.add_argument("--interval", type=int, help="seconds between polls (min 300 recommended)")
 
+    sp = sub.add_parser(
+        "import",
+        help="import Tankerkoenig historical CSV files (single CSV, directory or .zip)",
+    )
+    sp.add_argument("path", help="prices/stations CSV, a directory containing them, or a .zip")
+    sp.add_argument("--lat", type=float, help="latitude of the area centre")
+    sp.add_argument("--lng", type=float, help="longitude of the area centre")
+    sp.add_argument("--radius", type=float, help="radius in km (no API limit applies here)")
+
     sp = sub.add_parser("report", help="analyse the stored data")
     sp.add_argument("--since", help="only count increases from this Berlin date on (YYYY-MM-DD)")
     sp.add_argument("--limit", type=int, default=20)
+    sp.add_argument(
+        "--tolerance",
+        type=int,
+        default=history.DEFAULT_TOLERANCE_SECONDS,
+        help="seconds after 12:00:00 in which an increase still counts as 'at 12:00' (historical data only)",
+    )
     return p
 
 
@@ -87,7 +102,33 @@ def main(argv=None) -> int:
     conn = db.connect(args.db or cfg["db_path"])
 
     if args.cmd == "report":
-        print(report.format_report(conn, args.since, args.limit))
+        exact = report.format_exact_report(conn, args.since, args.tolerance, args.limit)
+        has_polls = conn.execute("SELECT 1 FROM polls LIMIT 1").fetchone() is not None
+        if exact:
+            print(exact)
+        if exact and has_polls:
+            print()
+        if has_polls or not exact:
+            print(report.format_report(conn, args.since, args.limit))
+        return 0
+
+    if args.cmd == "import":
+        lat = args.lat if args.lat is not None else cfg["lat"]
+        lng = args.lng if args.lng is not None else cfg["lng"]
+        rad = args.radius if args.radius is not None else cfg["radius_km"]
+        if lat is None or lng is None:
+            sys.exit("error: lat/lng required (use --lat/--lng or config.json)")
+        try:
+            t = history.import_path(conn, args.path, float(lat), float(lng), float(rad), progress=_log)
+        except (ValueError, OSError) as e:
+            sys.exit(f"import error: {e}")
+        _log(
+            f"fertig: {t['files']} Dateien importiert ({t['skipped_files']} uebersprungen), "
+            f"{t['rows_in_area']} von {t['rows']} Zeilen im Gebiet, {t['changes']} Aenderungen, "
+            f"{t['stations']} Tankstellen"
+        )
+        if t["files"] and not conn.execute("SELECT 1 FROM stations LIMIT 1").fetchone():
+            _log("Hinweis: keine Tankstellen bekannt - zuerst eine stations-CSV importieren oder 'poll' ausfuehren")
         return 0
 
     key, lat, lng, rad = resolve_area(args, cfg)

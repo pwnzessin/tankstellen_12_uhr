@@ -30,7 +30,47 @@ python -m tankstellen report --since 2026-10-08
 Alle Werte koennen auch in `config.json` stehen; der Key auch in der Umgebungsvariable `TANKERKOENIG_API_KEY`.
 `--db` waehlt die SQLite-Datei (Standard `tankstellen.db`).
 
-## Wie Verstoesse erkannt werden
+## Historische Daten importieren (exakte Auswertung)
+
+Mit einem freigeschalteten Tankerkoenig-Account gibt es die Preisaenderungen seit 2014 als CSV-Dateien
+(Git-Repo, siehe https://onboarding.tankerkoenig.de). Dort steht der **exakte Zeitpunkt jeder Aenderung**,
+dadurch ist die Auswertung eindeutig statt fensterbasiert.
+
+```powershell
+# Repo klonen/entpacken, dann den Ordner (oder eine Datei / ein .zip) importieren.
+# Nur Tankstellen im Umkreis werden gespeichert (hier gilt kein 25-km-Limit).
+python -m tankstellen import C:\daten\tankerkoenig-data --lat 52.1833 --lng 8.6833 --radius 25
+
+python -m tankstellen report --since 2026-04-01
+python -m tankstellen report --tolerance 120      # Toleranz nach 12:00:00 in Sekunden (Standard 300)
+```
+
+- Erwartete Formate: `*-prices.csv` mit `date,station_uuid,diesel,e5,e10,dieselchange,e5change,e10change`
+  und `*-stations.csv` mit `uuid,name,brand,street,house_number,post_code,city,latitude,longitude`.
+  Spaltenreihenfolge, BOM, Dezimalkomma und Preise in Zehntel-Cent werden toleriert.
+- Reihenfolge: erst alle Stations-Dateien, dann die Preis-Dateien chronologisch (nach Dateiname/Datum).
+  Stationen aus frueheren Imports oder aus `poll` zaehlen ebenfalls als bekannt.
+- Bereits importierte Dateien (nach Dateiname) werden uebersprungen: ein erneuter Import ist gefahrlos,
+  neue Tage koennen nachgeladen werden.
+- Nur Aenderungs-Flag `1` zaehlt als Preisaenderung. `3` (neu / nach MTS-K-Ausfall) setzt die Preisreihe
+  neu auf, `2` (entfernt) loescht den letzten Preis; beides ist nie eine "Erhoehung".
+
+**Bewertung jeder Erhoehung (einzeln):**
+
+| Verstoss | Bedeutung |
+|---|---|
+| `outside` | Erhoehung liegt ausserhalb von `[12:00:00, 12:00:00 + Toleranz)` (Berliner Zeit, auch bei Zeitumstellung) |
+| `repeat` | weitere Erhoehung im 12-Uhr-Fenster am selben Tag, Kraftstoff und Tankstelle |
+
+Eine frueh am Tag verbotene Erhoehung macht die erlaubte Erhoehung um 12 Uhr nicht nachtraeglich zum Verstoss.
+Die Toleranz ist eine Annahme: das Gesetz sagt "um 12 Uhr", die Meldung an die MTS-K hat aber eine Verzoegerung.
+Mit `--tolerance` laesst sich pruefen, wie stark das Ergebnis davon abhaengt.
+
+**Wichtig:** Die Formate sind aus der Tankerkoenig-Dokumentation und oeffentlichen Projekten abgeleitet,
+aber noch nicht an den echten Dateien geprueft (Zugang folgt). Bei Abweichungen (Zeitstempelformat,
+Dateinamen) bitte eine Beispieldatei pruefen; die Parser stehen in `tankstellen/history.py`.
+
+## Live-Abfrage (ohne historische Daten)
 
 Die API liefert nur den aktuellen Preis, keinen Zeitpunkt der Aenderung. Daher wird regelmaessig abgefragt
 und jede Abfrage mit der vorherigen verglichen. Eine Erhoehung hat irgendwann im Fenster
@@ -47,7 +87,11 @@ Grenzen:
 - Erhoehungen kurz vor/nach 12:00 innerhalb eines Abfragefensters sind nicht eindeutig und werden zugunsten der Tankstelle als `ok_noon` gewertet.
 - Benzin = E5 und E10 getrennt ausgewiesen; Diesel separat.
 
-Tabellen: `stations`, `price_observations` (jede Abfrage), `price_increases` (erkannte Erhoehungen + Urteil), `polls`.
+Tabellen: `stations`, `price_observations` (jede Abfrage), `price_increases` (erkannte Erhoehungen + Urteil), `polls`,
+`exact_changes` (historischer Import, exakte Zeitpunkte), `import_state`, `imported_files`.
+
+Live-Daten und historische Daten werden getrennt ausgewertet; `report` zeigt beide, sofern vorhanden.
+Der Daemon ist weiterhin sinnvoll, um die Luecke zwischen dem letzten CSV-Tag und heute zu fuellen.
 
 ## Tests
 
